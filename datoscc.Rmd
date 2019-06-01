@@ -1,0 +1,334 @@
+---
+title: "Datos cc"
+author: "Camilo Vega Ramírez"
+date: "16 de noviembre de 2018"
+output:
+  html_document:
+    df_print: paged
+---
+
+Librerías a usar
+```{r message=FALSE}
+library(readxl)
+library(tidyverse)
+library(janitor)
+library(purrr)
+library(broom)
+library(GGally)
+```
+
+# Fisico
+
+Primer realizaremos el análisis exploratorio de la hoja "físico"
+
+```{r fig.width= 10}
+fisico <- read_excel("datoscc.xlsx", sheet = "fisico") %>% 
+  clean_names()    
+
+fisico %>%
+  gather(quimico, valor, -(1:2)) %>% 
+  ggplot(aes(semana,valor, color = metodo)) + 
+  geom_line() +
+  facet_wrap(~quimico, scales = "free_y") +
+  ggtitle('Analisis Exploratorio "fisico"', subtitle = "Valor por semana") 
+
+```
+
+
+De la gráfica podemos observar como hierro libre, hierro quelato, kh, y nitrato se comportan igual para CAMAS y para SA. Para fosfatos, nitrito y ph se ven algunas diferencias en las primeras semanas y luego se igualan. Solamente para amonio se nota valores distintos en CAMAS y SA en el transcurso de las semanas.
+
+A continuación aplicaremos una prueba T sobre las diferencias entre CAMA y SA para amonio, fosfatos, nitrito y ph con el objetivo de ver si estas son significativas.
+
+```{r message=FALSE, warning=FALSE}
+c("amonio_ppm", "fosfatos_pppm", "nitrito_ppm", "p_h") %>%   
+  map_df(~ data.frame(quimico = ., t.test(fisico[[.]] ~ fisico$metodo) %>%  
+                                  tidy())) %>% 
+  select(quimico:estimate2, p.value) %>%
+  rename(diferencia = estimate, media_CAMAS = estimate1, media_SA = estimate2) 
+```
+
+De los resultados vemos que ningún p.value es significativo por lo cual no podemos decir si existen diferencias importantes para estos químicos en  CAMA respecto a SA. Lo anterior puede ser debido al bajo numero de observaciones.
+
+
+# Peces Peso Long
+
+Análisis exploratorio de la hoja peces peso long
+
+```{r message=FALSE, warning=FALSE, fig.width= 10}
+peces_peso_long <- read_excel("datoscc.xlsx", sheet = "peces peso long") %>% 
+  clean_names()   
+
+peces_peso_long %>%
+  select(-n_peces) %>% 
+  gather(tipo_medida, valor, -1) %>% 
+  ggplot(aes(fct_rev(medida), valor)) + 
+  geom_boxplot() +
+  geom_dotplot(binaxis='y', stackdir='center', dotsize = 0.5, alpha = 0.5) +
+  stat_summary(fun.data=mean_sdl, fun.args = list(mult=1), 
+        geom="errorbar", color="red", width=0.2, alpha =0.5) +
+  stat_summary(fun.y=mean, geom="point", color="red") +
+  facet_wrap(~tipo_medida, scales = "free_y") +
+  labs(x = "Medicion") +
+  ggtitle('Analisis Exploratorio "Peces Peso Long"', subtitle = "Medicion / Valor con barras de error")  
+```
+
+Vemos que para longitud_e los valores promedio y desviación no parecen variar.En longitud_t la media baja un poco y las desviaciones aumenta en la final respecto a la inicial. Por ultimo el peso final en promedio es mas bajo pero con menor desviación, respecto a los pesos iniciales.
+
+*Nota: Revisar los pesos, ya que en las mediciones finales estos son muy bajos lo cual puede decirnos que hubo una mala medicion o que los peses estaban desnutridos. Lo tanteriro cobra mas fuerza si tenemos en cuenta que las longitures se mantienen mas o menos estables.*
+
+
+A continuación aplicaremos una prueba T sobre las diferencias entre las medidas iniciales y finales  para los tipos de medidas con el objetivo de ver si estas son significativas.
+
+```{r message=FALSE, warning=FALSE}
+names(peces_peso_long)[3:5] %>%   
+  map_df(~ data.frame(tipo_medida = ., t.test(peces_peso_long[[.]] ~ peces_peso_long$medida) %>%  #prueba T
+                                  tidy())) %>%  
+  select(tipo_medida:estimate2, p.value) %>% 
+  rename(diferencia = estimate, media_inicial = estimate1, media_final = estimate2) 
+```
+
+De los resultados vemos que ningún p.value es significativo por lo cual no podemos decir si existen diferencias importantes entre las medidas iniciales y finales. Lo anterior puede ser debido al bajo numero de observaciones.
+
+
+# Pesos Plantas Variedades
+
+Para el análisis exploratorio de esta hoja miraremos por separado la relación de peso fresco y peso seco respecto a momento variedad y tratamiento
+
+## Analisis exploratorio Peso fresco
+
+Miremos primero las gráficas de peso fresco vs momento, variedad y tratamiento.
+
+```{r message=FALSE, warning=FALSE, fig.width= 10}
+pesos_plantas_variedades <- read_excel("datoscc.xlsx", sheet = "pesos plantas variedades") %>% #cargando datos
+  clean_names() 
+
+pesos_plantas_variedades %>% 
+  select(momento:tratamiento, peso_fresco) %>% 
+  ggpairs()
+```
+
+De la gráfica de peso fresco vs momento, nos damos cuenta que los pesos varían de forma extrema de la siembra a la cosecha, de igual forma la gráfica de densidad (peso_fresco vs peso_fresco), nos muestra que en realidad estamos frente a 2 modas, generadas por la gran diferencia en la de los pesos de los momentos.
+
+Lo anterior hace que tengamos que realizar el análisis del momento de siembra y el de cosecha por separado.
+
+### Analisis exploratorio Peso fresco - Siembra
+
+Miremos las relaciones de peso seco vs variedad y tratamiento para el momento de siembra
+
+```{r message=FALSE, warning=FALSE, fig.width= 10}
+siembra <- pesos_plantas_variedades %>% 
+  filter(momento == "SIEMBRA") 
+
+siembra %>% 
+  select(variedad,tratamiento, peso_fresco) %>% 
+  ggpairs()
+```
+
+De la gráfica peso_fresco/variedad, vemos que el peso esta afectado dependiendo de la variedad de la planta. De la gráfica peso fresco tratamiento vemos que existen diferencias entre el tratamiento NEGRO y PLATEADO donde uno se muestra mas variable que el otro
+
+### Analisis exploratorio Peso fresco - Cosecha
+
+Miremos las relaciones de peso seco vs variedad y tratamiento para el momento de cosecha
+
+```{r message=FALSE, warning=FALSE, fig.width= 10}
+cosecha <- pesos_plantas_variedades %>% 
+  filter(momento == "COSECHA") 
+cosecha %>% 
+  select(variedad,tratamiento, peso_fresco) %>% 
+  ggpairs()
+```
+
+De la gráfica peso_fresco/variedad, vemos que el peso esta afectado dependiendo de la variedad de la planta, sin embargo esta relación es distinta a la vista en el momento de siembra. De la gráfica peso fresco tratamiento vemos que existen diferencias entre el tratamiento NEGRO y PLATEADO, de igual forma esta diferencia es distinta a la vista en el momento de siembra.
+
+En conclusion del análisis exploratorio vemos que el peso fresco puede estar afectado por el momento, la variedad y el tratamiento así mismo vemos que puede existir una relación entre momento y variedad, y momento y tratamiento. A continuación haremos el análisis estadístico para ver si estas afectaciones y relaciones son significativas.
+
+### Analisis estadistico Peso fresco - Siembra 
+
+Debido a que contamos con dos variables independientes (variedad y tratamiento), una de las cuales (variedad) cuenta con mas de 3 niveles, se hace necesario el uso de un modelo para mirar las relaciones con respecto a la variable dependiente Peso fresco
+
+```{r fig.width= 10}
+m1 <- lm(peso_fresco ~ variedad*tratamiento, data = siembra)
+rs<-residuals(m1)
+fv<-fitted(m1)
+par(mfrow=c(1,2))
+plot(fv,rs,xlab="Fitted values",ylab="Residuals")
+abline(h=0, lty=2)
+qqnorm(rs,xlab="Normal scores", ylab="Ordered residuals",main="")
+qqline(rs,lty=2)
+```
+
+Vemos de las gráficas que el modelo cumple con los supuestos de normalidad para los residuales por lo cual es un modelo valido. Ahora usaremos ANOVA para mirar la significancia de las variables recepto al peso fresco
+
+```{r}
+anova(m1) 
+```
+
+Vemos del resultado que el peso fresco varia significativamente en la siembra dependiendo de la variedad. No se encuentra que varié significativamente en función del tratamiento o de alguna relación entre el tratamiento y la variedad
+
+Ahora realizaremos el tes to tukey para ver cuales son las especies que varían significativamente entre ellas.
+
+```{r}
+aov(peso_fresco ~ variedad, data = siembra) %>% 
+  TukeyHSD() %>% 
+  tidy() %>% 
+  mutate(adj.p.value = round(adj.p.value, 5)) %>% 
+  select(comparison, adj.p.value)
+```
+
+Como conclusion vemos que para la Siembra el peso fresco de las plantas es significativamente distinto solo entre las 3 variedades de plantas.
+
+### Analisis estadistico Peso fresco - cosecha
+
+Creamos el modelo para el momento de cosecha
+
+```{r fig.width= 10}
+m2 <- lm(peso_fresco ~ variedad*tratamiento, data = cosecha)
+rs<-residuals(m2)
+fv<-fitted(m2)
+par(mfrow=c(1,2))
+plot(fv,rs,xlab="Fitted values",ylab="Residuals")
+abline(h=0, lty=2)
+qqnorm(rs,xlab="Normal scores", ylab="Ordered residuals",main="")
+qqline(rs,lty=2)
+```
+
+Vemos de las gráficas que el modelo cumple con los supuestos de normalidad para los residuales por lo cual es un modelo valido. Ahora usaremos ANOVA para mirar la significancia de las variables recepto al peso fresco
+
+```{r}
+anova(m2) 
+```
+
+Vemos que para la cosecha la variedad sigue siendo significativa en el resultado del peso fresco, para el caso del tratamiento no es significativa, sin embargo vemos que la relación variedad:tratamiento es significativa. Esto nos indica que para algunas variedades el tratamiento si afecta el peso fresco.
+
+Ya que sabemos que el peso fresco es afectado fuertemente por la variedad, buscaremos mediante Tukey aquellas relaciones variedad:tratamiento donde el tratamiento sea significativamente distinto para la misma variedad
+
+```{r rows.print=18}
+aov(peso_fresco ~ variedad*tratamiento, data = cosecha) %>% 
+  TukeyHSD(c("variedad:tratamiento")) %>% 
+  tidy() %>% 
+  mutate(adj.p.value = round(adj.p.value, 5)) %>% 
+  select(term,comparison, adj.p.value)
+```
+
+Desafortunadamente ninguno de los tratamientos presenta una diferencia significativa para combinaciones con la misma especie. La significancia dada por el anova simplemente esta dada por las fuertes diferencias de peso fresco con  otras variedades.
+
+
+## Analisis exploratorio Peso Seco
+
+Repetiremos el proceso realizado con el peso fresco pero ahora para el peso seco
+
+Miremos primero las gráficas de peso seco vs momento, variedad y tratamiento.
+
+```{r message=FALSE, warning=FALSE, fig.width= 10}
+pesos_plantas_variedades %>% 
+  select(momento:tratamiento, peso_seco) %>% 
+  ggpairs()
+```
+
+De la gráfica de peso fresco vs momento, nos damos cuenta que los pesos varían de forma extrema de la siembra a la cosecha, de igual forma la gráfica de densidad (peso_seco vs peso_seco), nos muestra que en realidad estamos frente a 2 modas, generadas por la gran diferencia en la de los pesos de los momentos.
+
+Lo anterior hace que tengamos que realizar el análisis del momento de siembra y el de cosecha por separado.
+
+### Analisis exploratorio Peso seco - Siembra
+
+Miremos las relaciones de peso seco vs variedad y tratamiento para el momento de siembra
+
+```{r message=FALSE, warning=FALSE, fig.width= 10}
+siembra %>% 
+  select(variedad,tratamiento, peso_seco) %>% 
+  ggpairs()
+```
+
+De la gráfica peso_seco vs variedad, vemos como hay 2 variedades que se comportan casi que idénticas, mientras que otra tiene peso secos mayores. De la gráfica peso_seco vs tratamiento, vemos que se comportan prácticamente idénticas.
+
+### Analisis exploratorio Peso seco - Cosecha
+
+Miremos las relaciones de peso seco vs variedad y tratamiento para el momento de cosecha
+
+```{r message=FALSE, warning=FALSE, fig.width= 10}
+cosecha %>% 
+  select(variedad,tratamiento, peso_seco) %>% 
+  ggpairs()
+```
+
+De la gráfica peso_seco/variedad, vemos que el peso es  para cada variedad de la planta, contrario a lo visto en el  momento de siembra. De la gráfica peso fresco tratamiento vemos que existen diferencias entre el tratamiento NEGRO y PLATEADO, las diferencias están mas dadas en cuanto a la variabilidad que al promedio
+
+En conclusion del análisis exploratorio vemos que el peso seco puede estar afectado por el momento, la variedad y el tratamiento así mismo vemos que puede existir una relación entre momento y variedad, y momento y tratamiento. A continuación haremos el análisis estadístico para ver si estas afectaciones y relaciones son significativas.
+
+### Analisis estadistico Peso seco - Siembra 
+
+Debido a que contamos con dos variables independientes (variedad y tratamiento), una de las cuales (variedad) cuenta con mas de 3 niveles, se hace necesario el uso de un modelo para mirar las relaciones con respecto a la variable dependiente Peso seco
+
+```{r fig.width= 10}
+m3 <- lm(peso_seco ~ variedad*tratamiento, data = siembra)
+rs<-residuals(m3)
+fv<-fitted(m3)
+par(mfrow=c(1,2))
+plot(fv,rs,xlab="Fitted values",ylab="Residuals")
+abline(h=0, lty=2)
+qqnorm(rs,xlab="Normal scores", ylab="Ordered residuals",main="")
+qqline(rs,lty=2)
+```
+
+Vemos de las gráficas que el modelo cumple con los supuestos de normalidad para los residuales, pero estos muestran algunos patrones, esto puede ser debido a que los valores usados son muy pequeños y conlleva a que por aproximación se agrupen, sin embargo no creemos que esto represente un problema.
+
+Ahora usaremos ANOVA para mirar la significancia de las variables recepto al peso seco
+
+```{r}
+anova(m3) 
+```
+
+Vemos del resultado que el peso seco varia significativamente en la siembra dependiendo de la variedad. No se encuentra que varié significativamente en función del tratamiento o de alguna relación entre el tratamiento y la variedad
+
+Ahora realizaremos el test de tukey para ver cuales son las especies que varían significativamente entre ellas.
+
+```{r}
+aov(peso_seco ~ variedad, data = siembra) %>% 
+  TukeyHSD() %>% 
+  tidy() %>% 
+  mutate(adj.p.value = round(adj.p.value, 5)) %>% 
+  select(comparison, adj.p.value)
+```
+
+Como se vio en el análisis exploratorio habían 2 especies que se comportaban casi idénticas, estas especies son Crespa Verde y Crespa Morada, por lo cual se concluye que en el momento de siembra solo se notan diferencias significativas para el peso seco entre variedades de Robre y Crespa.
+
+### Analisis estadistico Peso seco - cosecha
+
+Creamos el modelo para el momento de cosecha
+
+```{r fig.width= 10}
+m4 <- lm(peso_seco ~ variedad*tratamiento, data = cosecha)
+rs<-residuals(m4)
+fv<-fitted(m4)
+par(mfrow=c(1,2))
+plot(fv,rs,xlab="Fitted values",ylab="Residuals")
+abline(h=0, lty=2)
+qqnorm(rs,xlab="Normal scores", ylab="Ordered residuals",main="")
+qqline(rs,lty=2)
+```
+
+Vemos de las gráficas que el modelo cumple con los supuestos de normalidad para los residuales por lo cual es un modelo valido. Ahora usaremos ANOVA para mirar la significancia de las variables recepto al peso seco
+
+```{r}
+anova(m4) 
+```
+
+Vemos entonces como en la cosecha el peso fresco solo se ve afectado por la variedad. A diferencia del peso fresco la relación variedad:tratamiento no tiene efecto significativo en el peso fresco.
+
+Usaremos Tukey para ver si como son las diferencias entre variedades para peso fresco
+
+```{r rows.print=18}
+aov(peso_seco ~ variedad, data = cosecha) %>% 
+  TukeyHSD() %>% 
+  tidy() %>% 
+  mutate(adj.p.value = round(adj.p.value, 5)) %>% 
+  select(term,comparison, adj.p.value)
+```
+
+De acuerdo con la anterior tabla entonces vemos que todas las variedades tienen un peso seco significativamente distinto entre si.
+
+
+# Conclusion
+
+De los datos analizados concluimos que solo podemos encontrar diferencias significativas para el peso fresco y seco, respecto a la variedad de la planta. No podemos concluir que los tratamiento afecten significativamente el peso de las plantas.
+
